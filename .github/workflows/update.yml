@@ -1,6 +1,9 @@
 name: Update Packtray cask
 
 on:
+  # Run it by hand right after a release (gh workflow run update.yml -R packtray/homebrew-tap).
+  # The daily run is a fallback: GitHub switches off schedules in a public repo after 60
+  # days without a commit, which is likely between releases.
   schedule:
     - cron: "17 5 * * *"
   workflow_dispatch:
@@ -45,7 +48,10 @@ jobs:
       - name: Validate the cask
         run: |
           brew tap packtray/tap "$GITHUB_WORKSPACE"
-          HOMEBREW_NO_AUTO_UPDATE=1 brew audit --cask --new packtray/tap/packtray
+          # --new, minus the one check meant for Homebrew's own list: that the download's
+          # GitHub repo is popular (75 stars, 30 forks or 30 watchers). packtray/releases
+          # isn't, so it would stop every update.
+          HOMEBREW_NO_AUTO_UPDATE=1 brew audit --cask --new --except github_repository packtray/tap/packtray
 
       - name: Commit the new version
         shell: bash
