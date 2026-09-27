@@ -20,9 +20,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location \
-            https://api.github.com/repos/packtray/releases/releases/latest \
-            -o release.json
+          status="$(curl --silent --show-error --location --output release.json --write-out '%{http_code}' \
+            https://api.github.com/repos/packtray/releases/releases/latest)"
+          if [[ "$status" == 404 ]]; then
+            echo "No stable Packtray release exists yet; leaving the tap unchanged."
+            exit 0
+          fi
+          test "$status" = 200
           test "$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["prerelease"]')" = false
           tag="$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["tag_name"]')"
           version="${tag#v}"
