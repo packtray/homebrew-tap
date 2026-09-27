@@ -1,0 +1,61 @@
+name: Update Packtray cask
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tap
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Read the latest stable release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://api.github.com/repos/packtray/releases/releases/latest \
+            -o release.json
+          test "$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["prerelease"]')" = false
+          tag="$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["tag_name"]')"
+          version="${tag#v}"
+          url="https://github.com/packtray/releases/releases/download/${tag}/Packtray.dmg"
+          curl --fail --silent --show-error --location "$url" -o /tmp/Packtray.dmg
+          sha256="$(sha256sum /tmp/Packtray.dmg | cut -d ' ' -f 1)"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "sha256=$sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write the cask
+        run: ruby scripts/update_cask.rb Casks/packtray.rb "${{ steps.release.outputs.version }}" "${{ steps.release.outputs.tag }}" "${{ steps.release.outputs.sha256 }}"
+
+      - name: Validate the cask
+        run: brew audit --cask --new Casks/packtray.rb
+
+      - name: Commit the new version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "packtray-release-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/packtray.rb
+          if git diff --cached --quiet; then
+            echo "Cask is already current."
+            exit 0
+          fi
+          git commit -m "packtray ${{ steps.release.outputs.version }}"
+          git push
