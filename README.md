@@ -2,6 +2,10 @@
 
 This tap publishes the signed and notarized Packtray macOS cask.
 
+The first cask is created automatically when Packtray publishes its first
+stable release. Tester and pre-release builds are intentionally ignored: they
+use Dodo test mode and are not suitable for public Homebrew installation.
+
 Install the latest stable release with:
 
 ```sh

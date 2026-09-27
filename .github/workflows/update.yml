@@ -10,15 +10,10 @@ permissions:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Check out the tap
         uses: actions/checkout@v4
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
 
       - name: Read the latest stable release
         id: release
@@ -33,7 +28,7 @@ jobs:
           version="${tag#v}"
           url="https://github.com/packtray/releases/releases/download/${tag}/Packtray.dmg"
           curl --fail --silent --show-error --location "$url" -o /tmp/Packtray.dmg
-          sha256="$(sha256sum /tmp/Packtray.dmg | cut -d ' ' -f 1)"
+          sha256="$(shasum -a 256 /tmp/Packtray.dmg | cut -d ' ' -f 1)"
           {
             echo "tag=$tag"
             echo "version=$version"
@@ -44,7 +39,9 @@ jobs:
         run: ruby scripts/update_cask.rb Casks/packtray.rb "${{ steps.release.outputs.version }}" "${{ steps.release.outputs.tag }}" "${{ steps.release.outputs.sha256 }}"
 
       - name: Validate the cask
-        run: brew audit --cask --new Casks/packtray.rb
+        run: |
+          brew tap packtray/tap "$GITHUB_WORKSPACE"
+          HOMEBREW_NO_AUTO_UPDATE=1 brew audit --cask --new packtray/tap/packtray
 
       - name: Commit the new version
         shell: bash
