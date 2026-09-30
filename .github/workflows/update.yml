@@ -21,6 +21,8 @@ jobs:
       - name: Read the latest stable release
         id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -31,6 +33,9 @@ jobs:
           for attempt in 1 2 3 4; do
             set +e
             status="$(curl --silent --show-error --location \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
               --connect-timeout 10 --max-time 30 \
               --output "$release_json" --write-out '%{http_code}' "$api_url")"
             curl_status=$?
@@ -106,6 +111,8 @@ jobs:
 
       - name: Validate the cask
         if: steps.release.outputs.skip != 'true'
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           brew tap packtray/tap "$GITHUB_WORKSPACE"
           # --new, minus the one check meant for Homebrew's own list: that the download's
