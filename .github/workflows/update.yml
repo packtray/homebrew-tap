@@ -23,29 +23,89 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          status="$(curl --silent --show-error --location --output release.json --write-out '%{http_code}' \
-            https://api.github.com/repos/packtray/releases/releases/latest)"
+
+          release_json="$RUNNER_TEMP/packtray-release.json"
+          api_url="https://api.github.com/repos/packtray/releases/releases/latest"
+          status="000"
+          curl_status=0
+          for attempt in 1 2 3 4; do
+            set +e
+            status="$(curl --silent --show-error --location \
+              --connect-timeout 10 --max-time 30 \
+              --output "$release_json" --write-out '%{http_code}' "$api_url")"
+            curl_status=$?
+            set -e
+
+            if [[ "$curl_status" -eq 0 && ( "$status" == "200" || "$status" == "404" ) ]]; then
+              break
+            fi
+
+            if [[ "$status" != "000" && "$status" != "403" && "$status" != "429" && "$status" -lt 500 ]]; then
+              echo "::error::GitHub release API returned HTTP $status. Response:"
+              head -c 2000 "$release_json" || true
+              exit 1
+            fi
+
+            if [[ "$attempt" -eq 4 ]]; then
+              echo "::error::GitHub release API request failed after $attempt attempts (curl exit $curl_status, HTTP $status)."
+              head -c 2000 "$release_json" || true
+              exit 1
+            fi
+
+            delay=$((attempt * 2))
+            echo "GitHub release API request failed (curl exit $curl_status, HTTP $status); retrying in ${delay}s ($attempt/4)."
+            sleep "$delay"
+          done
+
           if [[ "$status" == 404 ]]; then
             echo "No stable Packtray release exists yet; leaving the tap unchanged."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          test "$status" = 200
-          test "$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["prerelease"]')" = false
-          tag="$(ruby -rjson -e 'puts JSON.parse(File.read("release.json"))["tag_name"]')"
+
+          if [[ "$status" != "200" ]]; then
+            echo "::error::Unexpected GitHub release API response: HTTP $status. Response:"
+            head -c 2000 "$release_json" || true
+            exit 1
+          fi
+
+          if ! ruby -rjson -e 'release = JSON.parse(File.read(ARGV.fetch(0))); abort "response is not a release object" unless release.is_a?(Hash) && release["tag_name"].is_a?(String) && [true, false].include?(release["prerelease"])' "$release_json"; then
+            echo "::error::GitHub release API returned invalid release JSON. Response:"
+            head -c 2000 "$release_json" || true
+            exit 1
+          fi
+
+          prerelease="$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0)))["prerelease"]' "$release_json")"
+          if [[ "$prerelease" != "false" ]]; then
+            echo "Latest release is a pre-release; leaving the tap unchanged."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tag="$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0)))["tag_name"]' "$release_json")"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Latest stable release has an unexpected tag: $tag"
+            exit 1
+          fi
           version="${tag#v}"
           url="https://github.com/packtray/releases/releases/download/${tag}/Packtray.dmg"
-          curl --fail --silent --show-error --location "$url" -o /tmp/Packtray.dmg
-          sha256="$(shasum -a 256 /tmp/Packtray.dmg | cut -d ' ' -f 1)"
+          curl --fail --silent --show-error --location \
+            --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 90 \
+            --connect-timeout 10 --max-time 300 "$url" -o "$RUNNER_TEMP/Packtray.dmg"
+          sha256="$(shasum -a 256 "$RUNNER_TEMP/Packtray.dmg" | cut -d ' ' -f 1)"
           {
+            echo "skip=false"
             echo "tag=$tag"
             echo "version=$version"
             echo "sha256=$sha256"
           } >> "$GITHUB_OUTPUT"
 
       - name: Write the cask
+        if: steps.release.outputs.skip != 'true'
         run: ruby scripts/update_cask.rb Casks/packtray.rb "${{ steps.release.outputs.version }}" "${{ steps.release.outputs.tag }}" "${{ steps.release.outputs.sha256 }}"
 
       - name: Validate the cask
+        if: steps.release.outputs.skip != 'true'
         run: |
           brew tap packtray/tap "$GITHUB_WORKSPACE"
           # --new, minus the one check meant for Homebrew's own list: that the download's
@@ -54,6 +114,7 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE=1 brew audit --cask --new --except github_repository packtray/tap/packtray
 
       - name: Commit the new version
+        if: steps.release.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
