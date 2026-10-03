@@ -115,6 +115,9 @@ jobs:
           HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           brew tap packtray/tap "$GITHUB_WORKSPACE"
+          # The tap is a clone of the last commit, so it still holds the cask from before this
+          # update: copy the new one in, or the audit checks the old version.
+          cp Casks/packtray.rb "$(brew --repository packtray/tap)/Casks/packtray.rb"
           # --new, minus the one check meant for Homebrew's own list: that the download's
           # GitHub repo is popular (75 stars, 30 forks or 30 watchers). packtray/releases
           # isn't, so it would stop every update.
