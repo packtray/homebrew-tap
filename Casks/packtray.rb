@@ -1,6 +1,6 @@
 cask "packtray" do
-  version "1.0.1"
-  sha256 "96b79036ee7c317698988a6a1f35bbf608412a31895896e06bc1f9ced72d5bb9"
+  version "1.0.2"
+  sha256 "2ac2fec1063214f0de1e3f13ae3f418575ace451edf74022a9960225906843a8"
 
   url "https://github.com/packtray/releases/releases/download/v#{version}/Packtray.dmg"
   name "Packtray"
