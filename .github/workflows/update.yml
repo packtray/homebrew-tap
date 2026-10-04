@@ -3,7 +3,8 @@ name: Update Packtray cask
 on:
   # Run it by hand right after a release (gh workflow run update.yml -R packtray/homebrew-tap).
   # The daily run is a fallback: GitHub switches off schedules in a public repo after 60
-  # days without a commit, which is likely between releases.
+  # days without a commit, which is likely between releases. A run that finds the cask
+  # already current stops there and downloads nothing.
   schedule:
     - cron: "17 5 * * *"
   workflow_dispatch:
@@ -93,6 +94,22 @@ jobs:
             exit 1
           fi
           version="${tag#v}"
+
+          # Between releases the cask already has this version, which is nearly every
+          # scheduled run. Stop before the download then: GitHub counts each fetch of a
+          # release file as a download, and that count is how Packtray's downloads are
+          # measured, so a daily fetch here reads as a visitor a day. A published release's
+          # files can't be replaced, so the version settles it; the checksum GitHub reports
+          # for the file is compared as well, when the API gives one.
+          cask_version="$(ruby -e 'puts File.read(ARGV.fetch(0))[/^\s*version\s+"([^"]+)"/, 1].to_s' Casks/packtray.rb 2>/dev/null || true)"
+          cask_sha256="$(ruby -e 'puts File.read(ARGV.fetch(0))[/^\s*sha256\s+"([^"]+)"/, 1].to_s' Casks/packtray.rb 2>/dev/null || true)"
+          release_sha256="$(ruby -rjson -e 'asset = JSON.parse(File.read(ARGV.fetch(0))).fetch("assets", []).find { |a| a["name"] == "Packtray.dmg" } || {}; puts asset["digest"].to_s.delete_prefix("sha256:")' "$release_json")"
+          if [[ "$cask_version" == "$version" && ( -z "$release_sha256" || "$release_sha256" == "$cask_sha256" ) ]]; then
+            echo "The cask already has Packtray $version; nothing to download."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           url="https://github.com/packtray/releases/releases/download/${tag}/Packtray.dmg"
           curl --fail --silent --show-error --location \
             --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 90 \
